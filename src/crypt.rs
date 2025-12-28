@@ -133,7 +133,7 @@ pub fn encryptable_derive_macro2(item: proc_macro2::TokenStream) -> deluxe::Resu
       let func = digest.as_ref().unwrap();
       let parent = Ident::new(&field_name.replace("_digest", ""), Span::call_site());
 
-      quote! { #ident: #func(&self.#parent) }
+      quote! { #ident: if self.#parent.is_empty() { self.#ident.to_owned() } else { #func(&self.#parent) } }
     } else {
       quote! {
         #ident: self.#ident.to_owned()
