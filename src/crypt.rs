@@ -1,6 +1,6 @@
 use proc_macro2::{TokenStream, Span};
 use quote::quote;
-use syn::{Data, DeriveInput, Expr, Field, Fields, Type, Ident};
+use syn::{DeriveInput, Expr, Field, Type, Ident};
 
 #[derive(deluxe::ExtractAttributes)]
 #[deluxe(attributes(encryptable))]
@@ -18,6 +18,22 @@ struct EncryptableFieldAttributes {
   encrypt: bool,
   #[deluxe(default)]
   decrypt: bool,
+}
+
+type EncryptableFieldAttributesDictionary = std::collections::HashMap<Field, EncryptableFieldAttributes>;
+
+fn extract_encryptable_field_attributes(ast: &mut DeriveInput) -> deluxe::Result<EncryptableFieldAttributesDictionary> {
+  let mut field_attributes = EncryptableFieldAttributesDictionary::new();
+
+  if let syn::Data::Struct(structure) = &mut ast.data {
+    for field in structure.fields.iter_mut() {
+      let attributes: EncryptableFieldAttributes = deluxe::extract_attributes(field)?;
+
+      field_attributes.insert(field.to_owned(), attributes);
+    }
+  }
+
+  Ok(field_attributes)
 }
 
 fn is_option(ty: &Type) -> bool {
@@ -104,50 +120,44 @@ pub fn encryptable_derive_macro2(item: proc_macro2::TokenStream) -> deluxe::Resu
   let mut ast: DeriveInput = syn::parse2(item)?;
 
   let EncryptableAttributes { service, digest } = deluxe::extract_attributes(&mut ast)?;
-
-  let mut encrypt_fields = vec![];
-  let mut decrypt_fields = vec![];
+  let field_attributes = extract_encryptable_field_attributes(&mut ast)?;
 
   // Generate syntax tree
-  if let Data::Struct(data) = &mut ast.data {
-    if let Fields::Named(fields) = &mut data.fields {
-      for field in fields.named.iter_mut() {
-        let opts: EncryptableFieldAttributes = deluxe::extract_attributes(field)?;
-        let ident = field.ident.as_ref().unwrap();
-        let field_name = ident.to_string();
+  let encrypt_fields = field_attributes.iter().map(|(field, attributes)| {
+    let ident = field.ident.as_ref().unwrap();
+    let field_name = ident.to_string();
 
-        if opts.encrypt {
-          encrypt_fields.push(encrypt_field(field, &service));
-        } else if field_name.ends_with("digest") && digest.is_some() {
-          let digest_helper = digest.as_ref().unwrap();
-          let parent = Ident::new(&field_name.replace("_digest", ""), Span::call_site());
+    if attributes.encrypt {
+      encrypt_field(field, &service)
+    } else if field_name.ends_with("digest") && digest.is_some() {
+      let func = digest.as_ref().unwrap();
+      let parent = Ident::new(&field_name.replace("_digest", ""), Span::call_site());
 
-          encrypt_fields.push(quote! {
-            #ident: #digest_helper(&self.#parent)
-          });
-        } else {
-          encrypt_fields.push(quote! {
-            #ident: self.#ident.to_owned()
-          });
-        }
-
-        if opts.decrypt {
-          decrypt_fields.push(decrypt_field(field, &service));
-        } else {
-          encrypt_fields.push(quote! {
-            #ident: self.#ident.to_owned()
-          });
-        }
+      quote! { #ident: #func(&self.#parent) }
+    } else {
+      quote! {
+        #ident: self.#ident.to_owned()
       }
     }
-  }
+  });
+  let decrypt_fields = field_attributes.iter().map(|(field, attributes)| {
+    let ident = field.ident.as_ref().unwrap();
+
+    if attributes.decrypt {
+      decrypt_field(field, &service)
+    } else {
+      quote! {
+        #ident: self.#ident.to_owned()
+      }
+    }
+  });
 
   // define impl variables
   let ident = &ast.ident;
   let (impl_generics, type_generics, where_clause) = ast.generics.split_for_impl();
 
   Ok(quote! {
-    impl #impl_generics CryptKeeper for #ident #type_generics #where_clause {
+    impl #impl_generics Crypt for #ident #type_generics #where_clause {
       fn encrypt(&self) -> Self {
        Self {
         #(#encrypt_fields),*
