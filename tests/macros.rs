@@ -44,16 +44,16 @@ mod tests {
     data_digest("test_key", data).expect("Failed to digest data")
   }
 
-  #[derive(Debug, Encryptable)]
-  #[encryptable(service = SymmetricEncryption, digest = digest)]
-  struct TestData {
-    #[encryptable(encrypt, decrypt)]
-    name: String,
-    name_digest: String
-  }
-
   #[test]
   fn test_encryptable_derive() {
+    #[derive(Debug, Encryptable)]
+    #[encryptable(service = SymmetricEncryption, digest = digest)]
+    struct TestData {
+      #[encryptable(encrypt, decrypt)]
+      name: String,
+      name_digest: String
+    }
+
     let payload = TestData { name: "Jake".into(), name_digest: "".into() };
     let encrypted = payload.encrypt();
 
@@ -63,5 +63,68 @@ mod tests {
     let decrypted = encrypted.decrypt();
 
     assert_eq!(decrypted.name, payload.name)
+  }
+
+  #[test]
+  fn test_encryptable_derive_empty_string() {
+    #[derive(Debug, Encryptable)]
+    #[encryptable(service = SymmetricEncryption, digest = digest)]
+    struct TestData {
+      #[encryptable(encrypt, decrypt)]
+      name: String,
+      name_digest: String
+    }
+
+    let payload = TestData { name: "".into(), name_digest: "".into() };
+    let encrypted = payload.encrypt();
+
+    assert_eq!(encrypted.name, payload.name);
+    assert_eq!(encrypted.name_digest, payload.name_digest);
+
+    let decrypted = encrypted.decrypt();
+
+    assert_eq!(decrypted.name, payload.name)
+  }
+
+  #[test]
+  fn test_encryptable_derive_vector() {
+    #[derive(Debug, Encryptable)]
+    #[encryptable(service = SymmetricEncryption, digest = digest)]
+    struct TestData {
+      #[encryptable(encrypt, decrypt)]
+      sessions: Vec<String>,
+    }
+
+    let payload = TestData { sessions: vec!["dances".into(), "shopping".into()] };
+    let encrypted = payload.encrypt();
+
+    assert_eq!(encrypted.sessions.len(), payload.sessions.len());
+    assert_ne!(encrypted.sessions[0], payload.sessions[0]);
+
+    let decrypted = encrypted.decrypt();
+
+    assert_eq!(decrypted.sessions.len(), payload.sessions.len());
+    assert_eq!(decrypted.sessions[0], payload.sessions[0]);
+  }
+
+  #[test]
+  fn test_encryptable_derive_optional() {
+    #[derive(Debug, Encryptable)]
+    #[encryptable(service = SymmetricEncryption, digest = digest)]
+    struct TestData {
+      #[encryptable(encrypt, decrypt)]
+      name: Option<String>,
+    }
+
+    let payload = TestData { name: Some("dances".into()) };
+    let encrypted = payload.encrypt();
+
+    assert!(encrypted.name.is_some());
+    assert_ne!(encrypted.name.as_ref().unwrap(), payload.name.as_ref().unwrap());
+
+    let decrypted = encrypted.decrypt();
+
+    assert!(decrypted.name.is_some());
+    assert_eq!(decrypted.name.as_ref().unwrap(), payload.name.as_ref().unwrap());
   }
 }
